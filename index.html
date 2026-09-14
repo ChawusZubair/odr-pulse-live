@@ -140,7 +140,29 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23898781'/%3E%3C/svg%3E");
     background-repeat:no-repeat; background-position:right 14px center;
   }
+  input.datepick{
+    appearance:none; background:var(--surface-2); border:1px solid var(--border); color:var(--ink);
+    font:inherit; font-size:13.5px; font-weight:600; padding:8px 12px; border-radius:9px; cursor:pointer;
+  }
+  .dateRow{display:flex; align-items:center; gap:6px;}
+  .clearDateBtn{
+    border:1px solid var(--border); background:var(--surface); color:var(--ink-2); font-size:13px; font-weight:700;
+    width:32px; height:32px; border-radius:8px; cursor:pointer; display:none; align-items:center; justify-content:center; flex:0 0 auto;
+  }
+  .clearDateBtn.show{display:inline-flex;}
+  .clearDateBtn:hover{background:var(--surface-2);}
   .spacer{flex:1;}
+
+  .agentTable{margin-top:12px;}
+  .agentRow, .agentHead{
+    display:grid; grid-template-columns:1fr 84px 104px 68px; gap:12px; align-items:center;
+    padding:9px 0; border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .agentHead{font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); padding-bottom:8px;}
+  .agentRow .aname{font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .agentRow .anum{text-align:right; font-variant-numeric:tabular-nums; font-weight:700;}
+  .agentRow .atot{text-align:right; font-variant-numeric:tabular-nums; font-weight:800;}
+  .agentHead > div:not(:first-child), .agentRow .anum, .agentRow .atot{text-align:right;}
 
   .section{display:flex; flex-direction:column; gap:14px;}
   .section-head{
@@ -224,7 +246,25 @@
         <button data-days="90">90d</button>
       </div>
     </div>
+    <div class="filtergroup">
+      <label for="dateInput">Specific date</label>
+      <div class="dateRow">
+        <input type="date" id="dateInput" class="datepick">
+        <button class="clearDateBtn" id="dateClearBtn" type="button" title="Clear date">✕</button>
+      </div>
+    </div>
     <div class="spacer"></div>
+  </div>
+
+  <!-- ============ AGENT REMOVALS ============ -->
+  <div class="section" id="agentSection">
+    <div class="grid">
+      <div class="card c-span-12">
+        <h3>Agent removals <span class="cnt" id="cnt-agent"></span></h3>
+        <div class="hint">Who withdrew a claim or removed a negative feedback — counts follow the filters above</div>
+        <div class="agentTable" id="agentTable"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ A-Z CLAIMS ============ -->
@@ -392,6 +432,7 @@
         appealDate: parseDate(r['Appeal Date']),
         remarks: clean(r['Remarks']),
         refundStatus: normRefund(r['Refund Status']),
+        agent: clean(r['Agent Name']),
       });
     });
     return out;
@@ -411,6 +452,7 @@
         reason: clean(r['Reason']) || 'Not specified',
         status: clean(r['Status']) || 'Pending',
         remarks: clean(r['Remarks']),
+        agent: clean(r['Agent Name']),
       });
     });
     return out;
@@ -446,6 +488,8 @@
       const feedback = buildFeedback(fbRows);
       const accounts = Array.from(new Set(claims.map(c=>c.account).concat(feedback.map(f=>f.account)))).filter(Boolean).sort();
       DATA = { accounts, claims, feedback };
+      const allDates = claims.map(c=>c.date).concat(feedback.map(f=>f.date)).sort();
+      if (allDates.length) dateInput.max = allDates[allDates.length-1];
       statusDot.className = 'dot';
       const now = new Date();
       lastRefreshEl.textContent = 'Live · fetched ' + now.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}) + ' · ' + (claims.length+feedback.length) + ' rows';
@@ -472,7 +516,7 @@
   // ---------------------------------------------------------------------
   function cv(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
   const HAS_CHART = (typeof Chart !== 'undefined');
-  const state = { account: 'all', days: 30 };
+  const state = { account: 'all', days: 30, date: null };
 
   const acctSelect = document.getElementById('acctSelect');
   function rebuildAccountOptions(){
@@ -489,14 +533,40 @@
   acctSelect.addEventListener('change', e=>{ state.account = e.target.value; render(); });
 
   const daySeg = document.getElementById('daySeg');
+  const dateInput = document.getElementById('dateInput');
+  const dateClearBtn = document.getElementById('dateClearBtn');
+
+  function clearDateFilter(){
+    state.date = null;
+    dateInput.value = '';
+    dateClearBtn.classList.remove('show');
+  }
+
   daySeg.querySelectorAll('button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       state.days = +btn.dataset.days;
+      clearDateFilter();
       daySeg.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
       render();
     });
   });
   daySeg.querySelector('[data-days="30"]').classList.add('active');
+
+  dateInput.addEventListener('change', ()=>{
+    if (dateInput.value){
+      state.date = dateInput.value;
+      dateClearBtn.classList.add('show');
+      daySeg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+    } else {
+      clearDateFilter();
+    }
+    render();
+  });
+  dateClearBtn.addEventListener('click', ()=>{
+    clearDateFilter();
+    daySeg.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.days === String(state.days)));
+    render();
+  });
 
   function refDate(){
     const allDates = DATA.claims.map(c=>c.date).concat(DATA.feedback.map(f=>f.date)).sort();
@@ -507,9 +577,13 @@
     const diffDays = (REF - d) / 86400000;
     return diffDays >= 0 && diffDays < state.days;
   }
+  function matchDate(dateStr){
+    if (state.date) return dateStr === state.date;
+    return inWindow(dateStr, refDate());
+  }
   function matchAccount(a){ return state.account === 'all' || a === state.account; }
-  function filteredClaims(){ const REF = refDate(); return DATA.claims.filter(c => matchAccount(c.account) && inWindow(c.date, REF)); }
-  function filteredFeedback(){ const REF = refDate(); return DATA.feedback.filter(f => matchAccount(f.account) && inWindow(f.date, REF)); }
+  function filteredClaims(){ return DATA.claims.filter(c => matchAccount(c.account) && matchDate(c.date)); }
+  function filteredFeedback(){ return DATA.feedback.filter(f => matchAccount(f.account) && matchDate(f.date)); }
 
   // ---------------------------------------------------------------------
   // Chart-library setup (guarded — falls back to plain bars if it fails)
@@ -640,10 +714,36 @@
     });
   }
 
+  function renderAgentTable(claims, feedback){
+    const claimCounts = {}, fbCounts = {};
+    claims.forEach(c=>{ if (c.agent) claimCounts[c.agent] = (claimCounts[c.agent]||0) + 1; });
+    feedback.forEach(f=>{ if (f.agent) fbCounts[f.agent] = (fbCounts[f.agent]||0) + 1; });
+    const agents = Array.from(new Set([...Object.keys(claimCounts), ...Object.keys(fbCounts)]))
+      .sort((a,b)=> ((claimCounts[b]||0)+(fbCounts[b]||0)) - ((claimCounts[a]||0)+(fbCounts[a]||0)));
+    const wrap = document.getElementById('agentTable');
+    document.getElementById('cnt-agent').textContent = agents.length ? `${agents.length} agent${agents.length>1?'s':''}` : '';
+    if (!agents.length){
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:12.5px;padding:6px 0;">No claims or feedback marked as handled by an agent yet for this filter.</div>';
+      return;
+    }
+    const head = `<div class="agentHead"><div>Agent</div><div>Claims</div><div>Feedback</div><div>Total</div></div>`;
+    const rows = agents.map(a=>{
+      const cc = claimCounts[a]||0, fc = fbCounts[a]||0;
+      return `<div class="agentRow">
+        <div class="aname">${a}</div>
+        <div class="anum" style="color:var(--claims-hue)">${cc}</div>
+        <div class="anum" style="color:var(--fb-hue)">${fc}</div>
+        <div class="atot">${cc+fc}</div>
+      </div>`;
+    }).join('');
+    wrap.innerHTML = head + rows;
+  }
+
   function render(){
    try {
     const claims = filteredClaims();
     const feedback = filteredFeedback();
+    renderAgentTable(claims, feedback);
 
     document.getElementById('claimsTotal').textContent = claims.length;
     const odrCounts = countBy(claims, 'odrImpacted');

@@ -145,6 +145,7 @@
     font:inherit; font-size:13.5px; font-weight:600; padding:8px 12px; border-radius:9px; cursor:pointer;
   }
   .dateRow{display:flex; align-items:center; gap:6px;}
+  .dateDash{color:var(--muted); font-size:13px; flex:0 0 auto;}
   .clearDateBtn{
     border:1px solid var(--border); background:var(--surface); color:var(--ink-2); font-size:13px; font-weight:700;
     width:32px; height:32px; border-radius:8px; cursor:pointer; display:none; align-items:center; justify-content:center; flex:0 0 auto;
@@ -247,10 +248,12 @@
       </div>
     </div>
     <div class="filtergroup">
-      <label for="dateInput">Specific date</label>
+      <label for="dateFromInput">Date range</label>
       <div class="dateRow">
-        <input type="date" id="dateInput" class="datepick">
-        <button class="clearDateBtn" id="dateClearBtn" type="button" title="Clear date">✕</button>
+        <input type="date" id="dateFromInput" class="datepick" title="From date">
+        <span class="dateDash">→</span>
+        <input type="date" id="dateToInput" class="datepick" title="To date">
+        <button class="clearDateBtn" id="dateClearBtn" type="button" title="Clear date range">✕</button>
       </div>
     </div>
     <div class="spacer"></div>
@@ -261,7 +264,7 @@
     <div class="grid">
       <div class="card c-span-12">
         <h3>Agent removals <span class="cnt" id="cnt-agent"></span></h3>
-        <div class="hint">Who withdrew a claim or removed a negative feedback — counts follow the filters above</div>
+        <div class="hint">Who withdrew a claim or removed a negative feedback — all-time counts (respects the account filter, not the date range)</div>
         <div class="agentTable" id="agentTable"></div>
       </div>
     </div>
@@ -489,7 +492,12 @@
       const accounts = Array.from(new Set(claims.map(c=>c.account).concat(feedback.map(f=>f.account)))).filter(Boolean).sort();
       DATA = { accounts, claims, feedback };
       const allDates = claims.map(c=>c.date).concat(feedback.map(f=>f.date)).sort();
-      if (allDates.length) dateInput.max = allDates[allDates.length-1];
+      if (allDates.length){
+        dateFromInput.max = allDates[allDates.length-1];
+        dateToInput.max = allDates[allDates.length-1];
+        dateFromInput.min = allDates[0];
+        dateToInput.min = allDates[0];
+      }
       statusDot.className = 'dot';
       const now = new Date();
       lastRefreshEl.textContent = 'Live · fetched ' + now.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}) + ' · ' + (claims.length+feedback.length) + ' rows';
@@ -516,7 +524,7 @@
   // ---------------------------------------------------------------------
   function cv(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
   const HAS_CHART = (typeof Chart !== 'undefined');
-  const state = { account: 'all', days: 30, date: null };
+  const state = { account: 'all', days: 30, dateFrom: null, dateTo: null };
 
   const acctSelect = document.getElementById('acctSelect');
   function rebuildAccountOptions(){
@@ -533,13 +541,19 @@
   acctSelect.addEventListener('change', e=>{ state.account = e.target.value; render(); });
 
   const daySeg = document.getElementById('daySeg');
-  const dateInput = document.getElementById('dateInput');
+  const dateFromInput = document.getElementById('dateFromInput');
+  const dateToInput = document.getElementById('dateToInput');
   const dateClearBtn = document.getElementById('dateClearBtn');
 
   function clearDateFilter(){
-    state.date = null;
-    dateInput.value = '';
+    state.dateFrom = null;
+    state.dateTo = null;
+    dateFromInput.value = '';
+    dateToInput.value = '';
     dateClearBtn.classList.remove('show');
+  }
+  function updateClearBtn(){
+    dateClearBtn.classList.toggle('show', !!(state.dateFrom || state.dateTo));
   }
 
   daySeg.querySelectorAll('button').forEach(btn=>{
@@ -552,16 +566,17 @@
   });
   daySeg.querySelector('[data-days="30"]').classList.add('active');
 
-  dateInput.addEventListener('change', ()=>{
-    if (dateInput.value){
-      state.date = dateInput.value;
-      dateClearBtn.classList.add('show');
+  function onRangeChange(){
+    state.dateFrom = dateFromInput.value || null;
+    state.dateTo = dateToInput.value || null;
+    if (state.dateFrom || state.dateTo){
       daySeg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
-    } else {
-      clearDateFilter();
     }
+    updateClearBtn();
     render();
-  });
+  }
+  dateFromInput.addEventListener('change', onRangeChange);
+  dateToInput.addEventListener('change', onRangeChange);
   dateClearBtn.addEventListener('click', ()=>{
     clearDateFilter();
     daySeg.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.days === String(state.days)));
@@ -578,7 +593,11 @@
     return diffDays >= 0 && diffDays < state.days;
   }
   function matchDate(dateStr){
-    if (state.date) return dateStr === state.date;
+    if (state.dateFrom || state.dateTo){
+      if (state.dateFrom && dateStr < state.dateFrom) return false;
+      if (state.dateTo && dateStr > state.dateTo) return false;
+      return true;
+    }
     return inWindow(dateStr, refDate());
   }
   function matchAccount(a){ return state.account === 'all' || a === state.account; }
@@ -743,7 +762,12 @@
    try {
     const claims = filteredClaims();
     const feedback = filteredFeedback();
-    renderAgentTable(claims, feedback);
+    // Agent removals reflect all-time totals (account filter still applies) so an
+    // agent's work doesn't disappear just because it falls outside the date window.
+    renderAgentTable(
+      DATA.claims.filter(c => matchAccount(c.account)),
+      DATA.feedback.filter(f => matchAccount(f.account))
+    );
 
     document.getElementById('claimsTotal').textContent = claims.length;
     const odrCounts = countBy(claims, 'odrImpacted');

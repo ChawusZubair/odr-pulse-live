@@ -342,7 +342,7 @@
     </div>
   </div>
 
-  <footer>ODR Pulse · Live · reads directly from your <a id="sheetLink" href="#" target="_blank" rel="noopener">ODR Tracker Google Sheet</a> on every load and refresh</footer>
+  <footer>ODR Pulse · Live · refreshes automatically on every load</footer>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
@@ -356,7 +356,6 @@
   const CLAIMS_GID = '717711734';   // "A-z Claim" tab
   const FEEDBACK_GID = '1206678026'; // "Negative Feedback" tab
   const csvUrl = (gid) => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
-  document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 
   // ---------------------------------------------------------------------
   // CSV parsing (RFC4180-ish: quoted fields, embedded commas/newlines, "")
